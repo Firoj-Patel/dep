@@ -1,150 +1,29 @@
 diff --git a/tools/bpf/bpftool/skeleton/pid_iter.bpf.c b/tools/bpf/bpftool/skeleton/pid_iter.bpf.c
-index 3a4c4f7d83d8..26004f0c5a6a 100644
+index e2af8e5fb29e..3a4c4f7d83d8 100644
 --- a/tools/bpf/bpftool/skeleton/pid_iter.bpf.c
 +++ b/tools/bpf/bpftool/skeleton/pid_iter.bpf.c
-@@ -24,6 +24,10 @@ struct perf_event___local {
- 	u64 bpf_cookie;
- } __attribute__((preserve_access_index));
- 
-+enum bpf_link_type___local {
-+	BPF_LINK_TYPE_PERF_EVENT___local = 7,
-+};
-+
- extern const void bpf_link_fops __ksym;
- extern const void bpf_map_fops __ksym;
- extern const void bpf_prog_fops __ksym;
-@@ -93,10 +97,13 @@ int iter(struct bpf_iter__task_file *ctx)
- 	e.pid = task->tgid;
- 	e.id = get_obj_id(file->private_data, obj_type);
- 
--	if (obj_type == BPF_OBJ_LINK) {
-+	if (obj_type == BPF_OBJ_LINK &&
-+	    bpf_core_enum_value_exists(enum bpf_link_type___local,
-+				       BPF_LINK_TYPE_PERF_EVENT___local)) {
- 		struct bpf_link *link = (struct bpf_link *) file->private_data;
- 
--		if (BPF_CORE_READ(link, type) == BPF_LINK_TYPE_PERF_EVENT) {
-+		if (link->type == bpf_core_enum_value(enum bpf_link_type___local,
-+						      BPF_LINK_TYPE_PERF_EVENT___local)) {
- 			e.has_bpf_cookie = true;
- 			e.bpf_cookie = get_bpf_cookie(link);
- 		}
-
-diff --git a/tools/bpf/bpftool/skeleton/profiler.bpf.c b/tools/bpf/bpftool/skeleton/profiler.bpf.c
-index ce5b65e07ab1..2f80edc682f1 100644
---- a/tools/bpf/bpftool/skeleton/profiler.bpf.c
-+++ b/tools/bpf/bpftool/skeleton/profiler.bpf.c
-@@ -4,6 +4,12 @@
- #include <bpf/bpf_helpers.h>
- #include <bpf/bpf_tracing.h>
- 
-+struct bpf_perf_event_value___local {
-+	__u64 counter;
-+	__u64 enabled;
-+	__u64 running;
-+} __attribute__((preserve_access_index));
-+
- /* map of perf event fds, num_cpu * num_metric entries */
- struct {
- 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-@@ -15,14 +21,14 @@ struct {
- struct {
- 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
- 	__uint(key_size, sizeof(u32));
--	__uint(value_size, sizeof(struct bpf_perf_event_value));
-+	__uint(value_size, sizeof(struct bpf_perf_event_value___local));
- } fentry_readings SEC(".maps");
- 
- /* accumulated readings */
- struct {
- 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
- 	__uint(key_size, sizeof(u32));
--	__uint(value_size, sizeof(struct bpf_perf_event_value));
-+	__uint(value_size, sizeof(struct bpf_perf_event_value___local));
- } accum_readings SEC(".maps");
- 
- /* sample counts, one per cpu */
-@@ -39,7 +45,7 @@ const volatile __u32 num_metric = 1;
- SEC("fentry/XXX")
- int BPF_PROG(fentry_XXX)
- {
--	struct bpf_perf_event_value *ptrs[MAX_NUM_MATRICS];
-+	struct bpf_perf_event_value___local *ptrs[MAX_NUM_MATRICS];
- 	u32 key = bpf_get_smp_processor_id();
- 	u32 i;
- 
-@@ -53,10 +59,10 @@ int BPF_PROG(fentry_XXX)
- 	}
- 
- 	for (i = 0; i < num_metric && i < MAX_NUM_MATRICS; i++) {
--		struct bpf_perf_event_value reading;
-+		struct bpf_perf_event_value___local reading;
- 		int err;
- 
--		err = bpf_perf_event_read_value(&events, key, &reading,
-+		err = bpf_perf_event_read_value(&events, key, (void *)&reading,
- 						sizeof(reading));
- 		if (err)
- 			return 0;
-@@ -68,14 +74,14 @@ int BPF_PROG(fentry_XXX)
- }
- 
- static inline void
--fexit_update_maps(u32 id, struct bpf_perf_event_value *after)
-+fexit_update_maps(u32 id, struct bpf_perf_event_value___local *after)
- {
--	struct bpf_perf_event_value *before, diff;
-+	struct bpf_perf_event_value___local *before, diff;
- 
- 	before = bpf_map_lookup_elem(&fentry_readings, &id);
- 	/* only account samples with a valid fentry_reading */
- 	if (before && before->counter) {
--		struct bpf_perf_event_value *accum;
-+		struct bpf_perf_event_value___local *accum;
- 
- 		diff.counter = after->counter - before->counter;
- 		diff.enabled = after->enabled - before->enabled;
-@@ -93,7 +99,7 @@ fexit_update_maps(u32 id, struct bpf_perf_event_value *after)
- SEC("fexit/XXX")
- int BPF_PROG(fexit_XXX)
- {
--	struct bpf_perf_event_value readings[MAX_NUM_MATRICS];
-+	struct bpf_perf_event_value___local readings[MAX_NUM_MATRICS];
- 	u32 cpu = bpf_get_smp_processor_id();
- 	u32 i, zero = 0;
- 	int err;
-@@ -102,7 +108,8 @@ int BPF_PROG(fexit_XXX)
- 	/* read all events before updating the maps, to reduce error */
- 	for (i = 0; i < num_metric && i < MAX_NUM_MATRICS; i++) {
- 		err = bpf_perf_event_read_value(&events, cpu + i * num_cpu,
--						readings + i, sizeof(*readings));
-+						(void *)(readings + i),
-+						sizeof(*readings));
- 		if (err)
- 			return 0;
- 	}
-diff --git a/tools/bpf/bpftool/skeleton/pid_iter.bpf.c b/tools/bpf/bpftool/skeleton/pid_iter.bpf.c
-index eb05ea53afb1..e2af8e5fb29e 100644
---- a/tools/bpf/bpftool/skeleton/pid_iter.bpf.c
-+++ b/tools/bpf/bpftool/skeleton/pid_iter.bpf.c
-@@ -15,6 +15,10 @@ enum bpf_obj_type {
+@@ -15,6 +15,11 @@  enum bpf_obj_type {
  	BPF_OBJ_BTF,
  };
 
-+struct perf_event___local {
-+	u64 bpf_cookie;
++struct bpf_perf_link___local {
++	struct bpf_link link;
++	struct file *perf_file;
 +} __attribute__((preserve_access_index));
 +
- extern const void bpf_link_fops __ksym;
- extern const void bpf_map_fops __ksym;
- extern const void bpf_prog_fops __ksym;
-@@ -41,8 +45,8 @@ static __always_inline __u32 get_obj_id(void *ent, enum bpf_obj_type type)
+ struct perf_event___local {
+ 	u64 bpf_cookie;
+ } __attribute__((preserve_access_index));
+@@ -45,10 +50,10 @@  static __always_inline __u32 get_obj_id(void *ent, enum bpf_obj_type type)
  /* could be used only with BPF_LINK_TYPE_PERF_EVENT links */
  static __u64 get_bpf_cookie(struct bpf_link *link)
  {
-+	struct perf_event___local *event;
- 	struct bpf_perf_link *perf_link;
--	struct perf_event *event;
++	struct bpf_perf_link___local *perf_link;
+ 	struct perf_event___local *event;
+-	struct bpf_perf_link *perf_link;
 
- 	perf_link = container_of(link, struct bpf_perf_link, link);
+-	perf_link = container_of(link, struct bpf_perf_link, link);
++	perf_link = container_of(link, struct bpf_perf_link___local, link);
  	event = BPF_CORE_READ(perf_link, perf_file, private_data);
+ 	return BPF_CORE_READ(event, bpf_cookie);
+ }
