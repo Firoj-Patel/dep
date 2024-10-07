@@ -1,493 +1,687 @@
-#!/bin/bash
-# ©  Copyright IBM Corporation 2024.
+#!/usr/bin/env bash
+# © Copyright IBM Corporation 2024.
 # LICENSE: Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0)
 #
 # Instructions:
-# Download build script: wget https://raw.githubusercontent.com/linux-on-ibm-z/scripts/master/Elasticsearch/8.14.1/build_elasticsearch.sh
-# Execute build script: bash build_elasticsearch.sh    (provide -h for help)
-#
+# Download build script: wget https://raw.githubusercontent.com/linux-on-ibm-z/scripts/master/Zabbix/6.0.31/build_zabbixserver.sh
+# Execute build script: bash build_zabbixserver.sh    (provide -h for help)
+
 set -e -o pipefail
 
-PACKAGE_NAME="elasticsearch"
-PACKAGE_VERSION="8.14.1"
+PACKAGE_NAME="zabbixserver"
+URL_NAME="zabbix"
+PACKAGE_VERSION="6.0.31"
+PHP_VERSION="8.3.4"
 CURDIR="$(pwd)"
-PATCH_URL="https://raw.githubusercontent.com/linux-on-ibm-z/scripts/master/Elasticsearch/${PACKAGE_VERSION}/patch"
-ES_REPO_URL="https://github.com/elastic/elasticsearch"
-LOG_FILE="$CURDIR/logs/${PACKAGE_NAME}-${PACKAGE_VERSION}-$(date +"%F-%T").log"
-JAVA_PROVIDED="Temurin17"
-NON_ROOT_USER="$(whoami)"
+BUILD_DIR="$(pwd)"
+PREFIX="/usr/local"
+CMAKE=$PREFIX/bin/cmake
+PHP_PATCH_URL="https://raw.githubusercontent.com/linux-on-ibm-z/scripts/master/"
+PHP_PATCH_URL+="PHP/${PHP_VERSION}/patch"
+PHP_URL="https://www.php.net/distributions"
+PHP_URL+="/php-${PHP_VERSION}.tar.gz"
+
 FORCE="false"
-BUILD_ENV="$HOME/setenv.sh"
-CPU_NUM="$(grep -c ^processor /proc/cpuinfo)"
-USER_IN_GROUP_DOCKER=$(id -nGz "$USER" | tr '\0' '\n' | grep -c '^docker$')
-
-trap cleanup 0 1 2 ERR
-
-# Check if directory exists
-if [ ! -d "$CURDIR/logs/" ]; then
-        mkdir -p "$CURDIR/logs/"
-fi
-
-if [ -f "/etc/os-release" ]; then
-        source "/etc/os-release"
-fi
-
+TESTS="false"
+SKIP="false"
+source "/etc/os-release"
 DISTRO="$ID-$VERSION_ID"
 LOG_FILE="$CURDIR/logs/${PACKAGE_NAME}-${PACKAGE_VERSION}-${DISTRO}-$(date +"%F-%T").log"
 
-function prepare() {
+#Check if directory exists
+if [ ! -d "$CURDIR/logs" ]; then
+  mkdir -p "$CURDIR/logs"
+fi
 
-        if command -v "sudo" >/dev/null; then
-                printf -- 'Sudo : Yes\n' >>"$LOG_FILE"
-        else
-                printf -- 'Sudo : No \n' >>"$LOG_FILE"
-                printf -- 'Install sudo from repository using apt, yum or zypper based on your distro. \n'
-                exit 1
-        fi
+#==============================================================================
 
-        if command -v "docker" >/dev/null; then
-            printf -- 'Docker : Yes\n' |& tee -a "${LOG_FILE}"
-        else
-            printf -- 'Docker : No \n' |& tee -a "${LOG_FILE}"
-            printf -- 'Please install Docker based on your distro. \n' |& tee -a "${LOG_FILE}"
-            exit 1
-        fi
+error() { echo "Error: ${*}"; exit 1; }
+errlog() { echo "Error: ${*}" |& tee -a "$LOG_FILE"; exit 1; }
 
-        local have_docker_compose="false"
-        if docker compose version >/dev/null 2>&1; then
-            have_docker_compose="true"
-        elif [[ $DISTRO =~ ^sles-12 ]]; then
-            have_docker_compose="skip"
-        fi
-        if [[ $have_docker_compose == "true" ]]; then
-            printf -- 'Docker Compose : Yes\n' |& tee -a "${LOG_FILE}"
-        elif [[ $have_docker_compose == "skip" ]]; then
-            printf -- 'Docker Compose : Not Available\n' |& tee -a "${LOG_FILE}"
-            printf -- 'This platform does not provide a recent Docker Compose plugin required to run some integration tests. \n' |& tee -a "${LOG_FILE}"
-            printf -- 'Tests that require Docker Compose will be skipped. \n' |& tee -a "${LOG_FILE}"
-        else
-            printf -- 'Docker Compose : Not Installed \n' |& tee -a "${LOG_FILE}"
-            printf -- 'The Docker Compose plugin is required to run some integration tests. \n' |& tee -a "${LOG_FILE}"
-            printf -- 'Tests that require Docker Compose will be skipped. \n' |& tee -a "${LOG_FILE}"
-        fi
+msg() { echo "${*}"; }
+log() { echo "${*}" >> "$LOG_FILE"; }
+msglog() { echo "${*}" |& tee -a "$LOG_FILE"; }
 
-        if [[ "$USER_IN_GROUP_DOCKER" == "1" ]]; then
-            printf -- "User %s belongs to group docker\n" "$USER" |& tee -a "${LOG_FILE}"
-        else
-            printf -- "Please ensure User %s belongs to group docker.\n" "$USER" |& tee -a "${LOG_FILE}"
-            exit 1
-        fi
 
-        if [[ "$FORCE" == "true" ]]; then
-                printf -- 'Force attribute provided hence continuing with install without confirmation message\n' |& tee -a "$LOG_FILE"
-        else
-                printf -- 'As part of the installation, dependencies would be installed/upgraded.\n'
+trap cleanup 0 1 2 ERR
 
-                while true; do
-                        read -r -p "Do you want to continue (y/n) ? :  " yn
-                        case $yn in
-                        [Yy]*)
+#==============================================================================
 
-                                break
-                                ;;
-                        [Nn]*) exit ;;
-                        *) echo "Please provide Correct input to proceed." ;;
-                        esac
-                done
-        fi
 
-        # zero out
-        true > "$BUILD_ENV"
+function checkPrequisites() {
+  if command -v "sudo" >/dev/null; then
+    printf -- 'Sudo : Yes\n' >>"$LOG_FILE"
+  else
+    printf -- 'Sudo : No \n' >>"$LOG_FILE"
+    printf -- 'Sudo is required. Please install it using apt, yum or zypper based on your distro. \n'
+    exit 1
+  fi
+
+  if [[ "$FORCE" == "true" ]]; then
+    printf -- 'Force attribute provided hence continuing with install without confirmation message\n' |& tee -a "$LOG_FILE"
+  else
+    # Ask user for prerequisite installation
+    printf -- "\nAs part of the installation , dependencies would be installed/upgraded.\n"
+    while true; do
+      read -r -p "Do you want to continue (y/n) ? :  " yn
+      case $yn in
+      [Yy]*)
+        printf -- 'User responded with Yes. \n' >>"$LOG_FILE"
+        break
+        ;;
+      [Nn]*) exit ;;
+      *) echo "Please provide confirmation to proceed." ;;
+      esac
+    done
+  fi
 }
 
 function cleanup() {
-        rm -rf "${CURDIR}/temurin.tar.gz"
-        rm -rf "${CURDIR}/v1.5.5.tar.gz"
-        rm -rf "${CURDIR}/jansi"
-        rm -rf "${CURDIR}/jansi-jar"
-        printf -- '\nCleaned up the artifacts.\n' >>"$LOG_FILE"
-}
+  cd $BUILD_DIR
 
-function getJavaUrl() {
-    local jruntime=$1
-    local jdist=$2
-    case "${jruntime}" in
-    "Temurin17")
-        echo "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.11%2B9/OpenJDK17U-${jdist}_s390x_linux_hotspot_17.0.11_9.tar.gz"
-        ;;
-    "Temurin21")
-        echo "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-${jdist}_s390x_linux_hotspot_21.0.3_9.tar.gz"
-        ;;
-    esac
-    echo ""
-}
+  if [ -f php-$PHP_VERSION.tar.gz ]; then
+    sudo rm -f php-$PHP_VERSION.tar.gz
+  fi
 
-function isValidJavaProvided() {
-    local jp=$1
-    case "$jp" in
-    "Temurin17")
-        return 0
-        ;;
-    "OpenJDK17")
-        if [[ ! $DISTRO =~ ^sles-12 && ! $DISTRO =~ ^rhel-7 ]]; then
-                return 0
-        fi
-        ;;
-    "Temurin21")
-        return 0
-        ;;
-    "OpenJDK21")
-        # OpenJDK 21 is not currently available on RHEL 7, SLES 12/15
-        if [[ ! $DISTRO =~ ^sles-12 && ! $DISTRO =~ ^rhel-7 && ! $DISTRO =~ ^sles-15 ]]; then
-                return 0
-        fi
-        ;;
-    esac
-    return 1
-}
+  if [ -d php-$PHP_VERSION ]; then
+    sudo rm -rf php-$PHP_VERSION
+  fi
 
-function installJava() {
-        local jver="$1"
-        printf -- "Download and install Java \n"
-        cd $SOURCE_ROOT
-        if [ -d "/opt/java" ]; then sudo rm -Rf /opt/java; fi
+  if [ -d oniguruma ]; then
+    sudo rm -rf oniguruma
+  fi
 
-        if [[ $JAVA_PROVIDED =~ ^Temurin ]]; then
-            sudo mkdir -p /opt/java/jdk
-            curl -SL -o jdk.tar.gz "$(getJavaUrl $JAVA_PROVIDED jdk)"
-            sudo tar -zxf jdk.tar.gz -C /opt/java/jdk --strip-components 1
-	    sudo update-alternatives --install "/usr/bin/java" "java" "/opt/java/jdk/bin/java" 40
-	    sudo update-alternatives --install "/usr/bin/javac" "javac" "/opt/java/jdk/bin/javac" 40
-	    sudo update-alternatives --set java "/opt/java/jdk/bin/java"
-	    sudo update-alternatives --set javac "/opt/java/jdk/bin/javac"
-            export ES_JAVA_HOME=/opt/java/jdk
-        elif [[ $JAVA_PROVIDED =~ ^OpenJDK ]]; then
-            sudo mkdir -p /opt/java/
-            if [[ $ID == "ubuntu" ]]; then
-	        sudo apt-get install -y openjdk-${jver}-jdk
-	        export ES_JAVA_HOME=/usr/lib/jvm/java-${jver}-openjdk-s390x
-            elif [[  $ID == "rhel" ]]; then
-    	        sudo yum install -y java-${jver}-openjdk-devel
-	        export ES_JAVA_HOME=/usr/lib/jvm/java-${jver}-openjdk
-            elif [[  $ID == "sles" ]]; then
-    	        sudo zypper install -y java-${jver}-openjdk java-${jver}-openjdk-devel
-	        export ES_JAVA_HOME=/usr/lib64/jvm/java-${jver}-openjdk-${jver}
-            else
-                printf "%s is not supported for installing Java" "$ID"
-                exit 1
-            fi
-            sudo ln -s "$ES_JAVA_HOME" /opt/java/jdk
-        else
-            printf "%s is not supported, Please use valid java from {Temurin17, OpenJDK17} only\n" "$JAVA_PROVIDED"
-            exit 1
-        fi
-}
+  if [ -d libzip ]; then
+    sudo rm -rf libzip
+  fi
 
-function configureAndInstall() {
-        printf -- '\nConfiguration and Installation started \n'
-        # Install Java
-        local jver=17
-        if [[ $JAVA_PROVIDED =~ 21$ ]]; then
-            jver=21
-        fi
-        installJava "$jver"
+  if [ -d icu-release-55-1 ]; then
+    sudo rm -rf icu-release-55-1
+  fi
 
-        export LANG="en_US.UTF-8"
-        export JAVA_HOME=$ES_JAVA_HOME
-        printf -- "export LANG="en_US.UTF-8"\n" >> "$BUILD_ENV"
-        printf -- "export ES_JAVA_HOME=$ES_JAVA_HOME\n" >> "$BUILD_ENV"
-        printf -- "export JAVA_HOME=$JAVA_HOME\n" >> "$BUILD_ENV"
+  if [ -d tidy-html5 ]; then
+    sudo rm -rf tidy-html5
+  fi
 
-        export PATH=$ES_JAVA_HOME/bin:$PATH
-        printf -- "export PATH=$PATH\n" >> "$BUILD_ENV"
-        java -version
-        printf -- "Installation of %s is successful\n" "$JAVA_PROVIDED"
+  if [ -d cmake-3.12.4 ]; then
+    sudo rm -rf cmake-3.12.4
+  fi
 
-        #Build JANSI v2.4.0
-        cd $CURDIR
-        git clone -b jansi-2.4.0 https://github.com/fusesource/jansi.git
-        cd jansi
-        make clean-native native OS_NAME=Linux OS_ARCH=s390x
+  if [ -d mariadb_server ]; then
+    sudo rm -rf mariadb_server
+  fi
 
-        mkdir -p $CURDIR/jansi-jar
-        cd $CURDIR/jansi-jar
-        wget https://repo1.maven.org/maven2/org/fusesource/jansi/jansi/2.4.0/jansi-2.4.0.jar
-        jar xvf jansi-2.4.0.jar
-        cd org/fusesource/jansi/internal/native/Linux
-        mkdir s390x
-        cp $CURDIR/jansi/target/native-Linux-s390x/libjansi.so s390x/
-        cd $CURDIR/jansi-jar
-        jar cvf jansi-2.4.0.jar .
+  if [ -d cmocka ]; then
+    sudo rm -rf cmocka
+  fi
 
-        mkdir -p $CURDIR/.gradle/caches/modules-2/files-2.1/org.fusesource.jansi/jansi/2.4.0/321c614f85f1dea6bb08c1817c60d53b7f3552fd/
-        cp jansi-2.4.0.jar $CURDIR/.gradle/caches/modules-2/files-2.1/org.fusesource.jansi/jansi/2.4.0/321c614f85f1dea6bb08c1817c60d53b7f3552fd/
-        sha256=$(sha256sum jansi-2.4.0.jar | awk '{print $1}')
-
-        # Build images for osixia/openldap needed by x-pack/test/idp-fixture/docker-compose.yml
-        cd $CURDIR
-        git clone -b v1.2.0 https://github.com/osixia/docker-light-baseimage.git
-        cd docker-light-baseimage/
-        curl -sSL "${PATCH_URL}/docker-light-baseimage.patch" | git apply -
-        make build
-        cd $CURDIR
-        git clone -b v1.4.0 https://github.com/osixia/docker-openldap.git
-        cd docker-openldap/
-        curl -sSL "${PATCH_URL}/docker-openldap.patch" | git apply -
-        make build
-
-        cd $CURDIR
-        ZSTD_VERSION=1.5.5
-        wget https://github.com/facebook/zstd/archive/refs/tags/v$ZSTD_VERSION.tar.gz
-        tar -xzvf v$ZSTD_VERSION.tar.gz
-        cd zstd-$ZSTD_VERSION
-        make DESTDIR=$(pwd)/_build install
-        
-        cd $CURDIR
-        # Download and configure ElasticSearch
-        printf -- 'Downloading Elasticsearch. Please wait.\n'
-        git clone -b v$PACKAGE_VERSION $ES_REPO_URL
-        cd $CURDIR/elasticsearch
-
-        # get the latest tag version and replace it in x-pack/plugin/ml/build.gradle to avoid build issue
-        git fetch --tags
-        latest_tag=$(git tag | sort -V | tail -n1)
-        latest_tag="${latest_tag:1}-SNAPSHOT"
-
-        echo $latest_tag
-        sed -i 's|${project.version}|'"${latest_tag}"'|g' ${CURDIR}/elasticsearch/x-pack/plugin/ml/build.gradle
-
-        # Apply patch
-        curl -sSL "${PATCH_URL}/elasticsearch.patch" | git apply -
-        
-        mkdir -p $CURDIR/elasticsearch/libs/
-        cp -r $CURDIR/zstd-$ZSTD_VERSION/_build/usr/local/lib/ $CURDIR/elasticsearch/libs/zstd/
-        export LD_LIBRARY_PATH=$CURDIR/elasticsearch/libs/zstd/${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
-        sudo ldconfig
-
-        mkdir -p $CURDIR/elasticsearch/distribution/packages/s390x-rpm/
-        echo '
-                // This file is intentionally blank. All configuration of the
-                // export is done in the parent project.
-             ' | tee $CURDIR/elasticsearch/distribution/packages/s390x-rpm/build.gradle
-        mkdir -p $CURDIR/elasticsearch/distribution/packages/s390x-deb/
-        echo '
-                // This file is intentionally blank. All configuration of the
-                // export is done in the parent project.
-             ' | tee $CURDIR/elasticsearch/distribution/packages/s390x-deb/build.gradle
-        mkdir -p $CURDIR/elasticsearch/distribution/archives/linux-s390x-tar/
-        echo '
-                // This file is intentionally blank. All configuration of the
-                // export is done in the parent project.
-             ' | tee $CURDIR/elasticsearch/distribution/archives/linux-s390x-tar/build.gradle
-
-        mkdir -p $CURDIR/elasticsearch/distribution/docker/ubi-docker-s390x-export/
-        echo '
-                // This file is intentionally blank. All configuration of the
-                // export is done in the parent project.
-             ' | tee $CURDIR/elasticsearch/distribution/docker/ubi-docker-s390x-export/build.gradle
-        mkdir -p $CURDIR/elasticsearch/distribution/docker/cloud-docker-s390x-export/
-        echo '
-                // This file is intentionally blank. All configuration of the
-                // export is done in the parent project.
-             ' | tee $CURDIR/elasticsearch/distribution/docker/cloud-docker-s390x-export/build.gradle
-        mkdir -p $CURDIR/elasticsearch/distribution/docker/cloud-ess-docker-s390x-export/
-        echo '
-                // This file is intentionally blank. All configuration of the
-                // export is done in the parent project.
-             ' | tee $CURDIR/elasticsearch/distribution/docker/cloud-ess-docker-s390x-export/build.gradle
-        mkdir -p $CURDIR/elasticsearch/distribution/docker/docker-s390x-export/
-        echo '
-                // This file is intentionally blank. All configuration of the
-                // export is done in the parent project.
-             ' | tee $CURDIR/elasticsearch/distribution/docker/docker-s390x-export/build.gradle
-        mkdir -p $CURDIR/elasticsearch/distribution/docker/ironbank-docker-s390x-export/
-        echo '
-                // This file is intentionally blank. All configuration of the
-                // export is done in the parent project.
-             ' | tee $CURDIR/elasticsearch/distribution/docker/ironbank-docker-s390x-export/build.gradle
-        sed -i 's|6cd91991323dd7b2fb28ca93d7ac12af5a86a2f53279e2b35827b30313fd0b9f|'"${sha256}"'|g' ${CURDIR}/elasticsearch/gradle/verification-metadata.xml
-
-        # build image for :x-pack:qa:openldap-tests:test
-        cd $CURDIR/elasticsearch/x-pack/test/idp-fixture/src/main/resources/openldap/
-        docker build -f Dockerfile -t docker.elastic.co/elasticsearch-dev/openldap-fixture:1.0 .
-
-        cd $CURDIR/elasticsearch 
-
-        # Building Elasticsearch
-        printf -- 'Building Elasticsearch \n'
-        printf -- 'Build might take some time. Sit back and relax\n'
-        export GRADLE_USER_HOME=$CURDIR/.gradle
-        printf -- "export GRADLE_USER_HOME=$GRADLE_USER_HOME\n" >> "$BUILD_ENV"
-       ./gradlew :distribution:archives:linux-s390x-tar:assemble --max-workers="$CPU_NUM"  --parallel
-
-        # Verifying Elasticsearch installation
-        if [[ $(grep -q "BUILD FAILED" "$LOG_FILE") ]]; then
-                printf -- '\nBuild failed due to some unknown issues.\n'
-                exit 1
-        fi
-        printf -- 'Built Elasticsearch successfully. \n\n'
-
-        printf -- 'Creating distributions as deb, rpm and docker: \n\n'
-        ./gradlew :distribution:packages:s390x-deb:assemble
-        printf -- 'Created deb distribution. \n\n'
-        ./gradlew :distribution:packages:s390x-rpm:assemble
-        printf -- 'Created rpm distribution. \n\n'
-        ./gradlew :distribution:docker:docker-s390x-export:assemble
-        printf -- 'Created docker distribution. \n\n'
-
-        printf -- "\n\nInstalling Elasticsearch\n"
-
-        cd "${CURDIR}/elasticsearch"
-        sudo mkdir /usr/share/elasticsearch
-        sudo tar -xzf distribution/archives/linux-s390x-tar/build/distributions/elasticsearch-"${PACKAGE_VERSION}"-SNAPSHOT-linux-s390x.tar.gz -C /usr/share/elasticsearch --strip-components 1
-        sudo ln -sf /usr/share/elasticsearch/bin/* /usr/bin/
-
-        if ([[ -z "$(cut -d: -f1 /etc/group | grep elastic)" ]]); then
-                printf -- '\nCreating group elastic.\n'
-                sudo /usr/sbin/groupadd elastic # If group is not already created
-        fi
-        sudo chown "$NON_ROOT_USER:elastic" -R /usr/share/elasticsearch
-
-        #update config to disable xpack.ml
-        sudo echo 'xpack.ml.enabled: false' >> /usr/share/elasticsearch/config/elasticsearch.yml
-
-        # Verifying Elasticsearch installation
-        if command -v "$PACKAGE_NAME" >/dev/null; then
-                printf -- "%s installation completed.\n" "$PACKAGE_NAME"
-        else
-                printf -- "Error while installing %s, exiting with 127 \n" "$PACKAGE_NAME"
-                exit 127
-        fi
-
-        # Run tests
-        runTest
+  printf -- 'Cleaned up the artifacts\n' >>"$LOG_FILE"
 }
 
 function runTest() {
-        if [[ "$TESTS" == "true" ]]; then
-                export JAVA_TOOL_OPTIONS="-Dfile.encoding=UTF8"
-                grep -q "JAVA_TOOL_OPTIONS" "$BUILD_ENV" || printf -- "export JAVA_TOOL_OPTIONS=$JAVA_TOOL_OPTIONS\n" >> "$BUILD_ENV"
-                # Always set RUNTIME_JAVA_HOME=/opt/java/jdk to make sure that the tests use it when using the distro provided OpenJDK.
-                # This works around a gradle problem where gradle does not recognize the distro provided OpenJDK.
-                export RUNTIME_JAVA_HOME=/opt/java/jdk
-                grep -q "RUNTIME_JAVA_HOME" "$BUILD_ENV" || printf -- "export RUNTIME_JAVA_HOME=$RUNTIME_JAVA_HOME\n" >> "$BUILD_ENV"
+  set +e
+	if [[ "$TESTS" == "true" ]]; then
+		printf -- "TEST Flag is set , Continue with running test \n"
+		cd ${BUILD_DIR}/${URL_NAME}
+		make tests
+		printf -- "Tests completed. \n"
+	fi
+  set -e
+}
 
-                cd "${CURDIR}/elasticsearch"
-                set +e
-                # Run Elasticsearch test suite
-                printf -- '\n Running Elasticsearch test suite.\n'
-                ./gradlew --continue test internalClusterTest -Dtests.haltonfailure=false -Dtests.jvm.argline="-Xss2m" |& tee -a ${CURDIR}/logs/test_results_${JAVA_PROVIDED}.log
-                printf -- '*****************************************************************************************************\n'
-                printf -- 'Some X-Pack test cases may fail as not all X-Pack plugins are not supported on s390x, such as Machine Learning features.\n\n'
-                printf -- 'Certain test cases such as RuleQueryBuilderTests may require an individual rerun to pass.\nTests can be rerun with a command like:\n'
-                printf -- '  ./gradlew :x-pack:plugin:ent-search:test -Dtests.jvm.argline="-Xss2m" --tests org.elasticsearch.xpack.application.rules.RuleQueryBuilderTests \n\n'
-                printf -- "Note: Environment Variables needed for rerunning tests have been added to $HOME/setenv.sh\n"
-                printf -- "      To set the Environment Variables needed to rerun tests, please run: source $HOME/setenv.sh \n"
-                printf -- "Note: On RHEL 8 and SLES with OpenJDK, you may need to change the system crypto policy with a command like:\n"
-                printf -- "        sudo update-crypto-policies --set LEGACY\n"
-                printf -- "      in order for all security tests to pass.\n"
-                printf -- "Note: On RHEL 9 with OpenJDK, some security tests will fail even with the LEGACY crypto policy.\n"
-                printf -- '*****************************************************************************************************\n'
-                set -e
-        fi
+function configureAndInstall() {
+  printf -- 'Configuration and Installation started \n'
+  printf -- 'Configuing httpd to enable PHP... \n'
+  # Configure httpd to enable PHP
+  if [[ "$ID" == "rhel" ]]; then
+    cd /etc/httpd/conf/
+    sudo chmod 766 httpd.conf
+    echo "ServerName localhost" >> httpd.conf
+    echo "AddType application/x-httpd-php .php" >> httpd.conf
+    echo "<Directory />" >> httpd.conf
+    echo "DirectoryIndex index.php" >> httpd.conf
+    echo "</Directory>" >> httpd.conf
+    sudo chmod 644 httpd.conf
+
+    sudo groupadd --system zabbix || echo "group already exists"
+    sudo useradd --system -g zabbix -d /usr/lib/zabbix -s /sbin/nologin -c "Zabbix Monitoring System" zabbix || echo "user already exists"
+
+    sudo sed -i 's/max_execution_time = 30/max_execution_time = 300/g' /etc/php.ini
+    sudo sed -i 's/max_input_time = 60/max_input_time = 300/g' /etc/php.ini
+    sudo sed -i 's/post_max_size = 8M/post_max_size = 16M/g' /etc/php.ini
+    sudo service php-fpm restart
+
+  fi
+
+  if [[ "$ID" == "sles" ]]; then
+    cd /etc/apache2/
+    sudo chmod 766 httpd.conf
+    echo "ServerName localhost" >> httpd.conf
+    echo "AddType application/x-httpd-php .php" >> httpd.conf
+    echo "<Directory />" >> httpd.conf
+    echo "DirectoryIndex index.php" >> httpd.conf
+    echo "</Directory>" >> httpd.conf
+    if [[ "$VERSION_ID" == "12.5" ]]; then
+      echo "LoadModule php7_module /usr/lib64/apache2/mod_php7.so" >> httpd.conf
+      sudo sed -i 's/max_execution_time = 30/max_execution_time = 300/g' /etc/php7/apache2/php.ini
+      sudo sed -i 's/max_input_time = 60/max_input_time = 300/g' /etc/php7/apache2/php.ini
+      sudo sed -i 's/post_max_size = 8M/post_max_size = 16M/g' /etc/php7/apache2/php.ini
+    else
+      echo "LoadModule php_module /usr/lib64/apache2/mod_php8.so" >> httpd.conf
+      sudo sed -i 's/max_execution_time = 30/max_execution_time = 300/g' /etc/php8/apache2/php.ini
+      sudo sed -i 's/max_input_time = 60/max_input_time = 300/g' /etc/php8/apache2/php.ini
+      sudo sed -i 's/post_max_size = 8M/post_max_size = 16M/g' /etc/php8/apache2/php.ini
+    fi
+    sudo chmod 644 httpd.conf
+
+    sudo groupadd --system zabbix || echo "group already exists"
+    sudo useradd --system -g zabbix -d /usr/lib/zabbix -s /sbin/nologin -c "Zabbix Monitoring System" zabbix || echo "user already exists"
+  fi
+
+  if [[ "$ID" == "ubuntu" ]]; then
+    cd /etc/apache2/
+    sudo chmod 766 apache2.conf
+    echo "ServerName localhost" >> apache2.conf
+    echo "AddType application/x-httpd-php .php" >> apache2.conf
+    echo "<Directory />" >> apache2.conf
+    echo "DirectoryIndex index.php" >> apache2.conf
+    echo "</Directory>" >> apache2.conf
+    sudo chmod 644 apache2.conf
+
+    sudo addgroup --system --quiet zabbix || echo "group already exists"
+    sudo adduser --quiet --system --disabled-login --ingroup zabbix --home /var/lib/zabbix --no-create-home zabbix || echo "user already exists"
+    
+    sudo locale-gen en_US en_US.UTF-8
+    sudo dpkg-reconfigure -f noninteractive locales  
+    LANG='en_US.UTF-8'
+    LANGUAGE='en_US.UTF-8'
+
+    if [[ "$VERSION_ID" == "20.04" ]]; then
+      sudo sed -i 's/max_execution_time = 30/max_execution_time = 300/g' /etc/php/7.4/apache2/php.ini
+      sudo sed -i 's/max_input_time = 60/max_input_time = 300/g' /etc/php/7.4/apache2/php.ini
+      sudo sed -i 's/post_max_size = 8M/post_max_size = 16M/g' /etc/php/7.4/apache2/php.ini
+    fi
+    if [[ "$VERSION_ID" == "22.04" ]]; then
+      sudo sed -i 's/max_execution_time = 30/max_execution_time = 300/g' /etc/php/8.1/apache2/php.ini
+      sudo sed -i 's/max_input_time = 60/max_input_time = 300/g' /etc/php/8.1/apache2/php.ini
+      sudo sed -i 's/post_max_size = 8M/post_max_size = 16M/g' /etc/php/8.1/apache2/php.ini
+      sudo sed -i 's/;date.timezone =/date.timezone = Asia\/Kolkata/g' /etc/php/8.1/apache2/php.ini
+    fi
+    if [[ "$VERSION_ID" == "24.04" ]]; then
+      sudo sed -i 's/max_execution_time = 30/max_execution_time = 300/g' /etc/php/8.3/apache2/php.ini
+      sudo sed -i 's/max_input_time = 60/max_input_time = 300/g' /etc/php/8.3/apache2/php.ini
+      sudo sed -i 's/post_max_size = 8M/post_max_size = 16M/g' /etc/php/8.3/apache2/php.ini
+      sudo sed -i 's/;date.timezone =/date.timezone = Asia\/Kolkata/g' /etc/php/8.3/apache2/php.ini
+    fi
+  fi
+
+  #Download and install zabbix server
+  printf -- 'Build and install Zabbix server... \n'
+  cd $BUILD_DIR
+  if ! [ -d ${URL_NAME} ]; then
+      git clone https://github.com/zabbix/zabbix.git
+  fi
+  cd ${URL_NAME}
+  git checkout ${PACKAGE_VERSION}
+  export CFLAGS="-std=gnu99"
+  ./bootstrap.sh tests
+  ./configure --enable-server --enable-agent --with-mysql --enable-ipv6 --with-net-snmp --with-libcurl --with-libxml2
+
+  # Installation
+  make -j$(nproc)
+  make dbschema -j$(nproc)
+  sudo make install
+
+  # Installing Zabbix web interface
+  printf -- 'Installing Zabbix web interface... \n'
+  if [[ "$ID" == "ubuntu" ]]; then
+    cd "$BUILD_DIR"/${URL_NAME}/ui/
+    sudo mkdir -p /var/www/html/${URL_NAME}
+    sudo cp -rf * /var/www/html/${URL_NAME}/
+    sudo chown -R www-data:www-data /var/www/html/zabbix/conf
+    sudo service apache2 start
+    sudo service mysql stop
+    sudo usermod -d /var/lib/mysql/ mysql
+    sudo service mysql start
+  fi
+
+  if [[ "$ID" == "rhel" ]]; then
+    cd /"$BUILD_DIR"/${URL_NAME}/ui/
+    sudo mkdir -p /var/www/html/${URL_NAME}
+    sudo cp -rf * /var/www/html/${URL_NAME}/
+    sudo chown -R apache:apache /var/www/html/zabbix/conf
+    sudo service mariadb start
+    sudo /usr/sbin/service httpd start
+  fi
+
+  if [[ "$ID" == "sles" ]]; then
+    cd /"$BUILD_DIR"/${URL_NAME}/ui/
+    sudo mkdir -p /srv/www/htdocs/${URL_NAME}
+    sudo cp -rf * /srv/www/htdocs/${URL_NAME}
+    sudo chown -R wwwrun:www /srv/www/htdocs/zabbix/conf
+    if [[ "$VERSION_ID" == "12.5" ]]; then
+      sudo mysqld_safe --user=mysql &
+      sleep 5
+    else
+      sudo service mariadb restart
+    fi
+    sudo service apache2 restart
+  fi
+
+  printf -- 'Create database and grant privileges to zabbix user... \n'
+  if [[ "$ID" == "ubuntu" && "$VERSION_ID" == "20.04" ]]; then
+    sudo mysql -e "create user 'zabbix'@'localhost' identified with mysql_native_password"
+    sudo mysql -e "create database zabbix character set utf8 collate utf8_bin"
+    sudo mysql -e "grant all privileges on zabbix.* to 'zabbix'@'localhost'"
+  else
+    sudo mysql -e "create user 'zabbix'@'localhost'"
+    sudo mysql -e "create database zabbix character set utf8 collate utf8_bin"
+    sudo mysql -e "grant all privileges on zabbix.* to 'zabbix'@'localhost'"
+  fi
+
+  printf -- 'Populate database with initial load... \n'
+  if [[ "$ID" == "ubuntu" ]]; then
+    printf -- 'Set MySQL setting... \n'
+    sudo mysql -e "SET GLOBAL log_bin_trust_function_creators = 1"
+  fi
+  cd ${BUILD_DIR}/${URL_NAME}/database/mysql
+  sudo mysql -uzabbix zabbix < schema.sql
+  sudo mysql -uzabbix zabbix < images.sql
+  sudo mysql -uzabbix zabbix < data.sql
+
+  #run tests
+  runTest
+
+  #display getting started info
+  gettingStarted
+
+  #cleanup
+  if [[ "$SKIP" != "true" ]]; then
+	cleanup
+	  # To remove color prefixes from log
+  sed -i 's/\x1b\[[0-9;]*m//g' $LOG_FILE
+  fi
+
+
+
+}
+
+#==============================================================================
+buildCmocka()
+{
+  printf -- 'Building cmocka... \n'
+  cd "$CURDIR"
+  if [ ! -d cmocka ]; then
+    git clone https://gitlab.com/cmocka/cmocka.git
+  fi
+  cd cmocka
+  git checkout cmocka-1.1.5
+  mkdir -p build
+  cd build
+  cmake -DCMAKE_INSTALL_PREFIX=/usr ..
+  sudo make install
+}
+
+#==============================================================================
+buildCmake()
+{
+  local ver=3.12.4
+  local url
+  echo "Building cmake $ver"
+
+  cd "$CURDIR"
+  if [ ! -d cmake-${ver} ]; then
+    url=https://github.com/Kitware/CMake/releases/download/v${ver}/cmake-${ver}.tar.gz
+    curl -sSL $url | tar xzf - || error "cmake $ver"
+  fi
+  cd cmake-${ver}
+  ./bootstrap
+  make -j$(nproc)
+  sudo make install
+}
+
+#==============================================================================
+buildZip()
+{
+  local ver=rel-1-4-0
+  echo "Building libzip $ver"
+
+  cd "$CURDIR"
+  if [ ! -d libzip ]; then
+    git clone https://github.com/nih-at/libzip
+  fi
+  cd libzip
+  git checkout ${ver}
+  mkdir -p build && cd build
+  $CMAKE .. -DCMAKE_INSTALL_PREFIX=${PREFIX}
+  make -j$(nproc)
+  sudo make install
+}
+
+#==============================================================================
+buildTidy()
+{
+  local ver=5.6.0
+  echo "Building tidy-html $ver"
+
+  cd "$CURDIR"
+  if [ ! -d tidy-html5 ]; then
+    git clone https://github.com/htacg/tidy-html5.git
+  fi
+  cd tidy-html5/
+  git checkout ${ver}
+  cd build/cmake
+  $CMAKE ../.. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${PREFIX}
+  make -j$(nproc)
+  sudo make install
+}
+
+#==============================================================================
+buildOniguruma()
+{
+  local ver=v6.9.5
+  echo "Building oniguruma $ver"
+
+  cd "$CURDIR"
+  if [ ! -d oniguruma ]; then
+    git clone https://github.com/kkos/oniguruma
+  fi
+  cd oniguruma
+  git checkout ${ver}
+  autoreconf -vfi
+  ./configure --prefix=${PREFIX}
+  make -j$(nproc)
+  sudo make install
+}
+
+#==============================================================================
+buildIcu()
+{
+  local ver=55-1
+  local url
+  echo "Building icu $ver"
+
+  cd "$CURDIR"
+  if [ ! -d icu-release-${ver} ]; then
+    url=https://github.com/unicode-org/icu/archive/release-${ver}.tar.gz
+    curl -sSL $url | tar xzf - || error "icu $ver"
+  fi
+  cd icu-release-${ver}/icu4c/source
+
+  ./configure --prefix=${PREFIX}
+  CFLAGS=-D__USE_XOPEN2K8 CXXFLAGS=-D__USE_XOPEN2K8 make
+  sudo make install
+}
+
+#==============================================================================
+buildPHP()
+{
+  local ver=${PHP_VERSION}
+  local url=${PHP_PATCH_URL}
+  echo "Building PHP $ver"
+
+  cd "$CURDIR"
+
+  if [ ! -f php-${ver}.tar.gz ]; then
+    wget --no-check-certificate $PHP_URL
+  fi
+  if [ ! -d php-${ver} ]; then
+    tar xzf php-${ver}.tar.gz
+  fi
+  cd php-${ver}
+
+  # backport NAN and infinity handling
+  curl -sSL ${PHP_PATCH_URL}/nan.diff | patch -p1 || error "${PHP_PATCH_URL}/nan.diff"
+  curl -sSL ${PHP_PATCH_URL}/infinity.diff | patch -p1 || error "${PHP_PATCH_URL}/infinity.diff"
+
+  # fix reflection
+  curl -sSL ${PHP_PATCH_URL}/reflection.diff | patch -p1 || error "${PHP_PATCH_URL}/reflection.diff"
+
+  icupkg -tb ext/intl/tests/_files/resourcebundle/root.res
+  icupkg -tb ext/intl/tests/_files/resourcebundle/es.res
+  icupkg -tb ext/intl/tests/_files/resourcebundle/res_index.res
+
+  ./configure --prefix=${PREFIX} \
+    --without-pcre-jit --without-pear \
+    --with-pdo-mysql=mysqlnd --with-mysqli=mysqlnd \
+    --with-pgsql --with-pdo-pgsql --with-pdo-sqlite \
+    --with-readline --with-gettext --with-apxs2=/usr/bin/apxs \
+    --enable-gd --with-jpeg --with-freetype --with-xpm \
+    --with-kerberos --with-openssl --with-ldap \
+    --with-xsl --with-xmlrpc --with-bz2 --with-gmp --with-zip \
+    --with-mhash --disable-inline-optimization \
+    --enable-intl --enable-fpm --enable-exif \
+    --enable-xmlreader --enable-sockets --enable-ctype \
+    --enable-sysvsem --enable-sysvshm --enable-sysvmsg --enable-shmop \
+    --enable-pcntl --enable-mbstring --enable-soap \
+    --enable-bcmath --enable-calendar --enable-ftp \
+    --enable-zend-test=shared \
+    --with-curl=/usr \
+    --with-zlib --with-zlib-dir=${ZLIB_DIR} \
+    --with-tidy=${TIDY_DIR} \
+    --with-pspell=/usr \
+    --with-enchant=/usr
+
+  make -j$(nproc)
+  sudo make install
+
+  sudo install -m644 php.ini-production ${PREFIX}/lib/php.ini
+  sudo sed -i "s@php/includes\"@&\ninclude_path = \".:$PREFIX/lib/php\"@" ${PREFIX}/lib/php.ini
+
+  sudo sed -i "s/;mysqli.allow_local_infile = On/mysqli.allow_local_infile = On/" ${PREFIX}/lib/php.ini
+
+  sudo sed -i "s/;opcache.enable=1/opcache.enable=1/" ${PREFIX}/lib/php.ini
+  sudo sed -i "s/;opcache.enable_cli=0/opcache.enable_cli=1/" ${PREFIX}/lib/php.ini
+}
+
+#==============================================================================
+buildMariadb()
+{
+  if [ -f /etc/my.cnf ]; then
+    sudo mv /etc/my.cnf /etc/my.cnf.old
+  fi
+  # Download mariadb
+  cd "$CURDIR"
+  git clone https://github.com/MariaDB/server.git mariadb_server
+  cd mariadb_server
+  git checkout mariadb-10.10.2
+  git submodule update --init --recursive
+  # Build and install mariadb
+  mkdir build  && cd build
+  cmake "$CURDIR"/mariadb_server
+  make -j$(nproc)
+  sudo make install
+  printf -- "Build mariadb success\n"
+    
+  export PATH=$PATH:/usr/sbin
+  sudo groupadd mysql || true
+  sudo useradd -g mysql mysql || true
+
+  cd /usr/local/mysql
+  sudo chown -R mysql .
+  sudo chmod -R o+rwx .
+
+  sudo scripts/mysql_install_db --user=mysql
+
+  sudo cp support-files/mysql.server /etc/init.d/mysql
+
+  # Create symlinks
+  sudo ln -sf /usr/local/mysql/bin/mysqladmin /usr/bin/
+  sudo ln -sf /usr/local/mysql/bin/mysqld_safe /usr/bin/
+  sudo ln -sf /usr/local/mysql/bin/mysql /usr/bin/
 }
 
 function logDetails() {
-        printf -- 'SYSTEM DETAILS\n' >"$LOG_FILE"
-        if [ -f "/etc/os-release" ]; then
-                cat "/etc/os-release" >>"$LOG_FILE"
-        fi
+  printf -- '**************************** SYSTEM DETAILS *************************************************************\n' >"$LOG_FILE"
 
-        cat /proc/version >>"$LOG_FILE"
-        printf -- "\nDetected %s \n" "$PRETTY_NAME"
-        printf -- "Request details : PACKAGE NAME= %s , VERSION= %s \n" "$PACKAGE_NAME" "$PACKAGE_VERSION" |& tee -a "$LOG_FILE"
+  if [ -f "/etc/os-release" ]; then
+    cat "/etc/os-release" >>"$LOG_FILE"
+  fi
+
+  cat /proc/version >>"$LOG_FILE"
+  printf -- '*********************************************************************************************************\n' >>"$LOG_FILE"
+
+  printf -- "Detected %s \n" "$PRETTY_NAME"
+  printf -- "Request details : PACKAGE NAME= %s , VERSION= %s \n" "$PACKAGE_NAME" "$PACKAGE_VERSION" |& tee -a "$LOG_FILE"
 }
 
 # Print the usage message
 function printHelp() {
-        echo
-        echo "Usage: "
-        echo "  bash build_elasticsearch.sh [-d debug] [-y install-without-confirmation] [-t install-with-tests] [-j Java to use from {Temurin17, OpenJDK17, Temurin21, OpenJDK21}]"
-        echo "  default: If no -j specified, Temurin 17 will be installed"
-        echo
+  echo
+  echo "Usage: "
+  echo "  bash build_zabbixserver.sh [-d debug] [-y install-without-confirmation] [-t run-tests] [-s skip-cleanup]"
+  echo
 }
 
-while getopts "h?dytj:" opt; do
-        case "$opt" in
-        h | \?)
-                printHelp
-                exit 0
-                ;;
-        d)
-                set -x
-                ;;
-        y)
-                FORCE="true"
-                ;;
-        t)
-                TESTS="true"
-                if command -v "$PACKAGE_NAME" >/dev/null; then
-                        esversion=$(elasticsearch --version |& sed -En 's/Version:\s+([0-9.]+).*/\1/p')
-                        printf -- "%s is detected with version %s .\n" "$PACKAGE_NAME" "$esversion" |& tee -a "$LOG_FILE"
-                        source $HOME/setenv.sh
-                        runTest |& tee -a "$LOG_FILE"
-                        exit 0
-                fi
-                ;;
-        j)
-                JAVA_PROVIDED="$OPTARG"
-                if ! isValidJavaProvided "$JAVA_PROVIDED"; then
-                        printf "%s is not supported, Please use valid java from {Temurin17, OpenJDK17, Temurin21, OpenJDK21} only" "$JAVA_PROVIDED"
-                        printf -- "Please note OpenJDK17 is not available on RHEL 7.* and SLES 12SP5"
-                        exit 1
-                fi
-                ;;
-        esac
+while getopts "h?dyts" opt; do
+  case "$opt" in
+  h | \?)
+    printHelp
+    exit 0
+    ;;
+  d)
+    set -x
+    ;;
+  y)
+    FORCE="true"
+    ;;
+  t)
+		TESTS="true"
+		;;
+  s)
+	SKIP="true"
+	;;
+  esac
 done
 
-function printSummary() {
-        printf -- '\n*****************************************************************************************************\n'
-        printf -- "\n* Getting Started * \n"
-        printf -- "Note: Environment Variables needed have been added to $HOME/setenv.sh\n"
-        printf -- "      To set the Environment Variables needed for Elasticsearch, please run: source $HOME/setenv.sh \n"
-        printf -- '\n\nStart Elasticsearch using the following command: elasticsearch '
-        printf -- '\n*****************************************************************************************************\n'
+function gettingStarted() {
+  printf -- "\n* Getting Started * \n"
+  if [[ "$DISTRO" == "sles-12.5" ]]; then
+    printf -- " If mariadb server isn't started, please run \"sudo mysqld_safe --user=mysql &\" to start it. \n"
+  fi
+  printf -- " Please follow the following steps from the build instructions to complete the installation :\n"
+  printf -- " Step 8: Start Zabbix server.  \n"
+  printf -- " Step 9: Configure through online console. \n"
+  printf -- "\n\nReference: \n"
+  printf -- " More information can be found here : https://www.zabbix.com/documentation/6.0/manual/installation\n"
+  printf -- '\n'
+  printf -- ""
 }
 
-logDetails
-prepare
+###############################################################################################################
 
-printf -- "Installing %s %s for %s and %s\n" "$PACKAGE_NAME" "$PACKAGE_VERSION" "$DISTRO" "$JAVA_PROVIDED" |& tee -a "$LOG_FILE"
-printf -- "Installing dependencies... it may take some time.\n"
+logDetails
+checkPrequisites #Check Prequisites
 
 case "$DISTRO" in
-"rhel-8.8" | "rhel-8.10" | "rhel-9.2" | "rhel-9.4" )
-        sudo yum install -y curl git gzip tar wget patch make gcc gcc-c++ |& tee -a "$LOG_FILE"
-        configureAndInstall |& tee -a "$LOG_FILE"
-        ;;
+
+"ubuntu-20.04")
+  printf -- "Installing %s %s for %s \n" "$PACKAGE_NAME" "$PACKAGE_VERSION" "$DISTRO" |& tee -a "$LOG_FILE"
+  printf -- 'Installing the dependencies for Zabbix server from repository \n' |& tee -a "$LOG_FILE"
+  sudo apt-get update >/dev/null
+  sudo apt-get -y install wget curl vim gcc make pkg-config snmp snmptrapd ceph locales libmariadbd-dev libxml2-dev \
+        libsnmp-dev libcurl4 libcurl4-openssl-dev git apache2 php php-mysql libapache2-mod-php mysql-server php7.4-xml \
+        php7.4-gd php-bcmath php-mbstring php7.4-ldap libevent-dev libpcre3-dev automake pkg-config libcmocka-dev \
+        libyaml-dev libyaml-libyaml-perl libpath-tiny-perl libipc-run3-perl build-essential |& tee -a "$LOG_FILE"
+  configureAndInstall |& tee -a "$LOG_FILE"
+  ;;
+
+"ubuntu-22.04") 
+  printf -- "Installing %s %s for %s \n" "$PACKAGE_NAME" "$PACKAGE_VERSION" "$DISTRO" |& tee -a "$LOG_FILE"
+  printf -- 'Installing the dependencies for Zabbix server from repository \n' |& tee -a "$LOG_FILE"
+  sudo apt-get update >/dev/null
+  sudo apt-get -y install wget curl vim gcc make pkg-config snmp snmptrapd ceph locales libmariadbd-dev libxml2-dev \
+        libsnmp-dev libcurl4 libcurl4-openssl-dev git apache2 php php-mysql libapache2-mod-php mysql-server php8.1-xml \
+        php8.1-gd php-bcmath php-mbstring php8.1-ldap libevent-dev libpcre3-dev automake pkg-config libcmocka-dev \
+        libyaml-dev libyaml-libyaml-perl libpath-tiny-perl libipc-run3-perl build-essential |& tee -a "$LOG_FILE"
+  configureAndInstall |& tee -a "$LOG_FILE"
+  ;;
+
+"ubuntu-24.04")
+  printf -- "Installing %s %s for %s \n" "$PACKAGE_NAME" "$PACKAGE_VERSION" "$DISTRO" |& tee -a "$LOG_FILE"
+  printf -- 'Installing the dependencies for Zabbix server from repository \n' |& tee -a "$LOG_FILE"
+  sudo apt-get update >/dev/null
+  sudo apt-get -y install wget curl vim gcc make pkg-config snmp snmptrapd ceph locales libmariadbd-dev libxml2-dev \
+      libsnmp-dev libcurl4 libcurl4-openssl-dev git apache2 php php-mysql libapache2-mod-php mysql-server php8.3-xml \
+      php8.3-gd php-bcmath php-mbstring php8.3-ldap libevent-dev libpcre3-dev automake pkg-config libcmocka-dev \
+      libyaml-dev libyaml-libyaml-perl libpath-tiny-perl libipc-run3-perl build-essential |& tee -a "$LOG_FILE"
+  configureAndInstall |& tee -a "$LOG_FILE"
+  ;;
+"rhel-8.8" | "rhel-8.10")
+  printf -- "Installing %s %s for %s \n" "$PACKAGE_NAME" "$PACKAGE_VERSION" "$DISTRO" |& tee -a "$LOG_FILE"
+  printf -- 'Installing the dependencies for Zabbix server from repository \n' |& tee -a "$LOG_FILE"
+  sudo subscription-manager repos --enable=codeready-builder-for-rhel-8-s390x-rpms |& tee -a "$LOG_FILE"
+  cat > MariaDB.repo <<'EOF'
+# MariaDB 10.11 RedHatEnterpriseLinux repository list - created 2023-07-14 14:59 UTC
+# https://mariadb.org/download/
+[mariadb]
+name = MariaDB
+# rpm.mariadb.org is a dynamic mirror if your preferred mirror goes offline. See https://mariadb.org/mirrorbits/ for details.
+# baseurl = https://rpm.mariadb.org/10.11/rhel/$releasever/$basearch
+baseurl = https://mirror.its.dal.ca/mariadb/yum/10.11/rhel/$releasever/$basearch
+module_hotfixes = 1
+# gpgkey = https://rpm.mariadb.org/RPM-GPG-KEY-MariaDB
+gpgkey = https://mirror.its.dal.ca/mariadb/yum/RPM-GPG-KEY-MariaDB
+gpgcheck = 1
+EOF
+  sudo mv MariaDB.repo /etc/yum.repos.d/
+  sudo yum install -y initscripts httpd tar wget curl vim gcc make net-snmp net-snmp-devel php-mysqlnd git \
+        httpd php libcurl-devel libxml2-devel php-xml php-gd php-bcmath php-mbstring php-ldap php-json libevent-devel \
+        pcre-devel policycoreutils-python-utils automake pkgconfig libcmocka-devel libyaml-devel perl-YAML-LibYAML \
+        libpath_utils-devel perl-IPC-Run3 perl-Path-Tiny php-fpm MariaDB-server MariaDB-client mysql-devel |& tee -a "$LOG_FILE"
+  sudo yum groupinstall -y 'Development Tools' |& tee -a "$LOG_FILE"
+  configureAndInstall |& tee -a "$LOG_FILE"
+  ;;
+
+"rhel-9.2" | "rhel-9.4" )
+  printf -- "Installing %s %s for %s \n" "$PACKAGE_NAME" "$PACKAGE_VERSION" "$DISTRO" |& tee -a "$LOG_FILE"
+  printf -- 'Installing the dependencies for Zabbix server from repository \n' |& tee -a "$LOG_FILE"
+  sudo dnf install -y initscripts httpd tar wget curl vim gcc make net-snmp net-snmp-devel php-mysqlnd mysql-libs git \
+        php libcurl-devel libxml2-devel php-xml php-gd php-bcmath php-mbstring php-ldap php-json libevent-devel \
+        pcre-devel policycoreutils-python-utils automake pkgconfig libcmocka-devel libyaml-devel perl-YAML-LibYAML \
+        libpath_utils-devel perl-IPC-Run3 perl-Path-Tiny mariadb mariadb-server mysql-devel perl-Time-HiRes |& tee -a "$LOG_FILE"
+  sudo yum groupinstall -y 'Development Tools' |& tee -a "$LOG_FILE"
+  configureAndInstall |& tee -a "$LOG_FILE"
+  ;;
 
 "sles-12.5")
-        sudo zypper install -y curl libnghttp2-devel git gzip tar wget patch make gcc gcc-c++ fontconfig dejavu-fonts | tee -a "$LOG_FILE"
-        configureAndInstall |& tee -a "$LOG_FILE"
-        ;;
+  printf -- "Installing %s %s for %s \n" "$PACKAGE_NAME" "$PACKAGE_VERSION" "$DISTRO" |& tee -a "$LOG_FILE"
+  printf -- 'Installing the dependencies for Zabbix server from repository \n' |& tee -a "$LOG_FILE"
+  sudo zypper install -y wget tar curl vim gcc7 gcc7-c++ make net-snmp net-snmp-devel net-tools git apache2 apache2-devel \
+        apache2-mod_php72 php72 php72-mysql php72-xmlreader php72-xmlwriter php72-gd php72-bcmath php72-mbstring \
+        php72-ctype php72-sockets php72-gettext php72-ldap libcurl-devel libxml2 libxml2-devel openldap2-devel openldap2 \
+        libevent-devel pcre-devel automake libyaml-devel perl-YAML-LibYAML perl-IPC-Run3 cmake glibc-locale libmysqld-devel libnghttp2-devel \
+        which gzip libopenssl-devel ncurses-devel bison boost-devel check-devel gawk pam-devel patch |& tee -a "$LOG_FILE"
+  curl -L https://cpanmin.us | sudo perl - --self-upgrade |& tee -a "$LOG_FILE"
+  sudo cpanm Path::Tiny |& tee -a "$LOG_FILE"
+  export LC_CTYPE="en_US.UTF-8"
 
-"sles-15.5" | "sles-15.6")
-        sudo zypper install -y curl git gzip tar wget patch make gcc gcc-c++ fontconfig dejavu-fonts | tee -a "$LOG_FILE"
-        configureAndInstall |& tee -a "$LOG_FILE"
-        ;;
+  sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-7 40
+  sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 40
+  sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 40
+  sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-7 40
 
-"ubuntu-20.04" | "ubuntu-22.04" )
-        sudo apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y curl git gzip tar wget patch locales make gcc g++ |& tee -a "$LOG_FILE"
-        sudo locale-gen en_US.UTF-8
-        configureAndInstall |& tee -a "$LOG_FILE"
-        ;;
+  buildCmocka |& tee -a "$LOG_FILE"
+  buildMariadb |& tee -a "$LOG_FILE"
+  configureAndInstall |& tee -a "$LOG_FILE"
+  ;;
+
+"sles-15.5")
+  printf -- "Installing %s %s for %s \n" "$PACKAGE_NAME" "$PACKAGE_VERSION" "$DISTRO" |& tee -a "$LOG_FILE"
+  printf -- 'Installing the dependencies for Zabbix server from repository \n' |& tee -a "$LOG_FILE"
+  sudo zypper install -y wget tar curl vim gcc make net-snmp net-snmp-devel net-tools git apache2 apache2-devel mariadb \
+        libmariadbd-devel apache2-mod_php8 php8 php8-mysql php8-xmlreader php8-xmlwriter php8-gd php8-bcmath php8-mbstring \
+        php8-ctype php8-sockets php8-gettext libcurl-devel libxml2-2 libxml2-devel openldap2-devel php8-ldap \
+        libevent-devel pcre-devel awk gzip automake cmake libyaml-devel perl-YAML-LibYAML perl-Path-Tiny perl-IPC-Run3 \
+        glibc-locale |& tee -a "$LOG_FILE"
+  export LC_CTYPE="en_US.UTF-8"
+
+  buildCmocka |& tee -a "$LOG_FILE"
+  configureAndInstall |& tee -a "$LOG_FILE"
+  ;;
 
 *)
-        printf -- "%s not supported \n" "$DISTRO" |& tee -a "$LOG_FILE"
-        exit 1
-        ;;
+  printf -- "%s not supported \n" "$DISTRO" |& tee -a "$LOG_FILE"
+  exit 1
+  ;;
 esac
-
-cleanup
-printSummary |& tee -a "$LOG_FILE"
