@@ -1,29 +1,202 @@
-diff --git a/tools/bpf/bpftool/skeleton/pid_iter.bpf.c b/tools/bpf/bpftool/skeleton/pid_iter.bpf.c
-index e2af8e5fb29e..3a4c4f7d83d8 100644
---- a/tools/bpf/bpftool/skeleton/pid_iter.bpf.c
-+++ b/tools/bpf/bpftool/skeleton/pid_iter.bpf.c
-@@ -15,6 +15,11 @@  enum bpf_obj_type {
- 	BPF_OBJ_BTF,
- };
-
-+struct bpf_perf_link___local {
-+	struct bpf_link link;
-+	struct file *perf_file;
-+} __attribute__((preserve_access_index));
-+
- struct perf_event___local {
- 	u64 bpf_cookie;
- } __attribute__((preserve_access_index));
-@@ -45,10 +50,10 @@  static __always_inline __u32 get_obj_id(void *ent, enum bpf_obj_type type)
- /* could be used only with BPF_LINK_TYPE_PERF_EVENT links */
- static __u64 get_bpf_cookie(struct bpf_link *link)
- {
-+	struct bpf_perf_link___local *perf_link;
- 	struct perf_event___local *event;
--	struct bpf_perf_link *perf_link;
-
--	perf_link = container_of(link, struct bpf_perf_link, link);
-+	perf_link = container_of(link, struct bpf_perf_link___local, link);
- 	event = BPF_CORE_READ(perf_link, perf_file, private_data);
- 	return BPF_CORE_READ(event, bpf_cookie);
- }
+XFAIL tests/pytests/unit/modules/test_postgres.py::test_verify_password[another-md5_pw-md5_pw-md5-False]
+XFAIL tests/pytests/unit/test_pytest_pass_fail.py::test_should_always_fail - This test should always fail. If it passes, we messed up pytest
+ERROR tests/integration/netapi/rest_tornado/test_app.py::TestSaltAPIHandler::test_regression_49572
+ERROR tests/pytests/functional/loader/test_loader.py::test_module_dirs_priority
+ERROR tests/pytests/functional/loader/test_loader.py::test_new_entry_points_passing_module
+ERROR tests/pytests/functional/loader/test_loader.py::test_new_entry_points_passing_func_returning_a_dict
+ERROR tests/pytests/functional/loader/test_loader.py::test_old_entry_points_yielding_paths
+ERROR tests/pytests/functional/loader/test_loader.py::test_utils_loader_does_not_load_extensions
+ERROR tests/pytests/functional/loader/test_loader.py::test_extension_discovery_without_reload_with_importlib_metadata_installed
+ERROR tests/pytests/functional/loader/test_loader.py::test_extension_discovery_without_reload_with_importlib_metadata_5_installed
+ERROR tests/pytests/functional/loader/test_loader.py::test_extension_discovery_without_reload_with_bundled_importlib_metadata
+ERROR tests/pytests/functional/modules/test_pkg.py::test_list - salt.exceptio...
+ERROR tests/pytests/functional/modules/test_pkg.py::test_mod_del_repo_multiline_values
+ERROR tests/pytests/functional/modules/test_pkg.py::test_pkg_info - salt.exce...
+ERROR tests/pytests/functional/modules/test_system.py::test_get_system_date_time
+ERROR tests/pytests/functional/modules/test_system.py::test_get_system_date_time_utc
+ERROR tests/pytests/integration/cli/test_salt_key.py::test_list_acc_wrong_eauth
+ERROR tests/pytests/integration/modules/saltutil/test_wheel.py::test_wheel_just_function
+ERROR tests/pytests/integration/modules/saltutil/test_wheel.py::test_wheel_with_arg
+ERROR tests/pytests/integration/modules/saltutil/test_wheel.py::test_wheel_no_arg_raise_error
+ERROR tests/pytests/integration/modules/saltutil/test_wheel.py::test_wheel_with_kwarg
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_arg_kwarg.py::test_accepts_arg_kwarg_keys
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_auth.py::test_get_root_noauth
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_auth.py::test_post_root_auth
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_auth.py::test_login_noauth
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_auth.py::test_webhook_auth
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_auth.py::test_good_login
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_auth.py::test_bad_login
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_auth.py::test_logout
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_jobs.py::test_all_jobs
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_run.py::test_run_good_login
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_run.py::test_run_netapi_client_not_set
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_run.py::test_run_bad_login
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_run.py::test_run_empty_token
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_run.py::test_run_empty_token_upercase
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_run.py::test_run_wrong_token
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_run.py::test_run_pathname_token
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_run.py::test_run_pathname_not_exists_token
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_run.py::test_run_extra_parameters
+ERROR tests/pytests/integration/netapi/rest_cherrypy/test_webhook_disable_auth.py::test_webhook_noauth
+ERROR tests/pytests/integration/netapi/rest_tornado/test_events_api_handler.py::test_get
+ERROR tests/pytests/integration/netapi/rest_tornado/test_jobs_api_handler.py::test_get
+ERROR tests/pytests/integration/netapi/rest_tornado/test_minions_api_handler.py::test_get_no_mid
+ERROR tests/pytests/integration/netapi/rest_tornado/test_minions_api_handler.py::test_get
+ERROR tests/pytests/integration/netapi/rest_tornado/test_minions_api_handler.py::test_post
+ERROR tests/pytests/integration/netapi/rest_tornado/test_minions_api_handler.py::test_post_with_client
+ERROR tests/pytests/integration/netapi/rest_tornado/test_minions_api_handler.py::test_post_with_incorrect_client
+ERROR tests/pytests/integration/netapi/rest_tornado/test_minions_api_handler.py::test_mem_leak_in_event_listener
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_root
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_post_no_auth
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_simple_local_post
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_simple_local_post_no_tgt
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_simple_local_post_only_dictionary_request
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_simple_local_post_invalid_request
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_simple_local_async_post
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_multi_local_async_post
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_multi_local_async_post_multitoken
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_simple_local_async_post_no_tgt
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_simple_local_runner_post
+ERROR tests/pytests/integration/netapi/rest_tornado/test_root_handler.py::test_simple_local_runner_async_post
+ERROR tests/pytests/integration/netapi/rest_tornado/test_run_api_handler.py::test_get
+ERROR tests/pytests/integration/netapi/test_client.py::test_local - Assertion...
+ERROR tests/pytests/integration/netapi/test_client.py::test_local_batch - Ass...
+ERROR tests/pytests/integration/netapi/test_client.py::test_local_async - Ass...
+ERROR tests/pytests/integration/netapi/test_client.py::test_local_disabled - ...
+ERROR tests/pytests/integration/netapi/test_client.py::test_local_batch_disabled
+ERROR tests/pytests/integration/netapi/test_client.py::test_local_subset_disabled
+ERROR tests/pytests/integration/netapi/test_client.py::test_wheel - Assertion...
+ERROR tests/pytests/integration/netapi/test_client.py::test_wheel_async - Ass...
+ERROR tests/pytests/integration/netapi/test_client.py::test_wheel_disabled - ...
+ERROR tests/pytests/integration/netapi/test_client.py::test_wheel_async_disabled
+ERROR tests/pytests/integration/netapi/test_client.py::test_runner_disabled
+ERROR tests/pytests/integration/runners/test_cache.py::test_grains - assert 1...
+ERROR tests/pytests/integration/runners/test_cache.py::test_pillar - assert 1...
+ERROR tests/pytests/integration/runners/test_cache.py::test_pillar_no_tgt - a...
+ERROR tests/pytests/integration/runners/test_cache.py::test_pillar_minion_noexist
+ERROR tests/pytests/integration/runners/test_cache.py::test_pillar_minion_tgt_type_pillar
+ERROR tests/pytests/pkg/integration/test_check_imports.py::test_check_imports
+ERROR tests/pytests/pkg/integration/test_clean_zmq_teardown.py::test_check_no_import_error
+ERROR tests/pytests/pkg/integration/test_enabled_disabled.py::test_services
+ERROR tests/pytests/pkg/integration/test_help.py::test_help - AssertionError:...
+ERROR tests/pytests/pkg/integration/test_logrotate_config.py::test_logrotate_config
+ERROR tests/pytests/pkg/integration/test_logrotate_config.py::test_issue_65231_etc_logrotate_salt_dir_removed
+ERROR tests/pytests/pkg/integration/test_pip.py::test_pip_install - Assertion...
+ERROR tests/pytests/pkg/integration/test_pip.py::test_pip_install_extras - As...
+ERROR tests/pytests/pkg/integration/test_pip.py::test_pip_non_root - Assertio...
+ERROR tests/pytests/pkg/integration/test_pip.py::test_pip_install_salt_extension_in_extras
+ERROR tests/pytests/pkg/integration/test_pip_upgrade.py::test_pip_install - A...
+ERROR tests/pytests/pkg/integration/test_pkg.py::test_pkg_install - Assertion...
+ERROR tests/pytests/pkg/integration/test_python.py::test_python_script[1-false]
+ERROR tests/pytests/pkg/integration/test_python.py::test_python_script[0-true]
+ERROR tests/pytests/pkg/integration/test_python.py::test_python_script_exception
+ERROR tests/pytests/pkg/integration/test_salt_api.py::test_salt_api - Asserti...
+ERROR tests/pytests/pkg/integration/test_salt_call.py::test_salt_call_local
+ERROR tests/pytests/pkg/integration/test_salt_call.py::test_salt_call - Asser...
+ERROR tests/pytests/pkg/integration/test_salt_call.py::test_sls - AssertionEr...
+ERROR tests/pytests/pkg/integration/test_salt_call.py::test_salt_call_local_sys_doc_none
+ERROR tests/pytests/pkg/integration/test_salt_call.py::test_salt_call_local_sys_doc_aliases
+ERROR tests/pytests/pkg/integration/test_salt_call.py::test_salt_call_cmd_run_id_runas
+ERROR tests/pytests/pkg/integration/test_salt_exec.py::test_salt_cmd_run - As...
+ERROR tests/pytests/pkg/integration/test_salt_exec.py::test_salt_list_users
+ERROR tests/pytests/pkg/integration/test_salt_grains.py::test_grains_items - ...
+ERROR tests/pytests/pkg/integration/test_salt_grains.py::test_grains_item_os
+ERROR tests/pytests/pkg/integration/test_salt_grains.py::test_grains_item_pythonversion
+ERROR tests/pytests/pkg/integration/test_salt_grains.py::test_grains_setval_key_val
+ERROR tests/pytests/pkg/integration/test_salt_grains.py::test_grains_package_onedir
+ERROR tests/pytests/pkg/integration/test_salt_key.py::test_salt_key - Asserti...
+ERROR tests/pytests/pkg/integration/test_salt_minion.py::test_salt_minion_ping
+ERROR tests/pytests/pkg/integration/test_salt_minion.py::test_salt_minion_setproctitle
+ERROR tests/pytests/pkg/integration/test_salt_output.py::test_salt_output[yaml]
+ERROR tests/pytests/pkg/integration/test_salt_output.py::test_salt_output[json]
+ERROR tests/pytests/pkg/integration/test_salt_pillar.py::test_salt_pillar - A...
+ERROR tests/pytests/pkg/integration/test_salt_state_file.py::test_salt_state_file
+ERROR tests/pytests/pkg/integration/test_salt_user.py::test_salt_user_master
+ERROR tests/pytests/pkg/integration/test_salt_user.py::test_salt_user_home - ...
+ERROR tests/pytests/pkg/integration/test_salt_user.py::test_salt_user_group
+ERROR tests/pytests/pkg/integration/test_salt_user.py::test_salt_user_shell
+ERROR tests/pytests/pkg/integration/test_salt_user.py::test_pkg_paths - Asser...
+ERROR tests/pytests/pkg/integration/test_systemd_config.py::test_system_config
+ERROR tests/pytests/pkg/integration/test_version.py::test_salt_version - Asse...
+ERROR tests/pytests/pkg/integration/test_version.py::test_salt_versions_report_master
+ERROR tests/pytests/pkg/integration/test_version.py::test_salt_versions_report_minion
+ERROR tests/pytests/pkg/integration/test_version.py::test_compare_versions[master]
+ERROR tests/pytests/pkg/integration/test_version.py::test_compare_versions[cloud]
+ERROR tests/pytests/pkg/integration/test_version.py::test_compare_versions[syndic]
+ERROR tests/pytests/pkg/integration/test_version.py::test_compare_versions[minion]
+ERROR tests/pytests/pkg/integration/test_version.py::test_compare_versions[call]
+ERROR tests/pytests/pkg/integration/test_version.py::test_compare_versions[api]
+ERROR tests/pytests/scenarios/dns/multimaster/test_dns.py::test_multimaster_dns
+ERROR tests/pytests/scenarios/dns/test_dns.py::test_dns_change - FileNotFound...
+ERROR tests/pytests/unit/modules/state/test_state.py::test_event - RuntimeErr...
+ERROR tests/pytests/unit/modules/test_beacons.py::test_delete - RuntimeError:...
+ERROR tests/pytests/unit/modules/test_beacons.py::test_add - RuntimeError: Th...
+ERROR tests/pytests/unit/modules/test_beacons.py::test_save - RuntimeError: T...
+ERROR tests/pytests/unit/modules/test_beacons.py::test_disable - RuntimeError...
+ERROR tests/pytests/unit/modules/test_beacons.py::test_enable - RuntimeError:...
+ERROR tests/pytests/unit/modules/test_beacons.py::test_add_beacon_module - Ru...
+ERROR tests/pytests/unit/modules/test_beacons.py::test_enable_beacon_module
+ERROR tests/pytests/unit/modules/test_beacons.py::test_delete_beacon_module
+FAILED tests/integration/externalapi/test_venafiapi.py::VenafiTest::test_request
+FAILED tests/integration/externalapi/test_venafiapi.py::VenafiTest::test_sign
+FAILED tests/integration/loader/test_ext_modules.py::LoaderOverridesTest::test_overridden_internal
+FAILED tests/integration/states/test_match.py::StateMatchTest::test_issue_2167_ipcidr_no_AttributeError
+FAILED tests/pytests/functional/cli/test_salt_deltaproxy.py::test_exit_status_correct_usage_large_number_of_minions[parallel_startup=True]
+FAILED tests/pytests/functional/cli/test_salt_deltaproxy.py::test_exit_status_correct_usage_large_number_of_minions[parallel_startup=False]
+FAILED tests/pytests/functional/modules/state/requisites/test_onlyif.py::test_onlyif_req_retcode
+FAILED tests/pytests/functional/modules/state/test_jinja_filters.py::test_filter[is_bin_file]
+FAILED tests/pytests/functional/modules/state/test_state.py::test_retry_option_success
+FAILED tests/pytests/functional/modules/test_network.py::test_network_ping - ...
+FAILED tests/pytests/functional/modules/test_network.py::test_network_netstat
+FAILED tests/pytests/functional/utils/test_process.py::test_subprocess_list_fds
+FAILED tests/pytests/integration/cli/test_matcher.py::test_ipcidr - assert []
+FAILED tests/pytests/integration/cli/test_salt_deltaproxy.py::test_exit_status_correct_usage_large_number_of_minions[parallel_startup=True]
+FAILED tests/pytests/integration/cli/test_salt_deltaproxy.py::test_exit_status_correct_usage_large_number_of_minions[parallel_startup=False]
+FAILED tests/pytests/integration/cli/test_salt_key.py::test_list_all - Assert...
+FAILED tests/pytests/integration/cli/test_salt_key.py::test_list_all_no_check_files
+FAILED tests/pytests/integration/cli/test_salt_key.py::test_list_all_yaml_out
+FAILED tests/pytests/integration/cli/test_salt_key.py::test_list_all_raw_out
+FAILED tests/pytests/integration/cli/test_salt_key.py::test_list_acc - Assert...
+FAILED tests/pytests/integration/minion/test_schedule_large_event.py::test_schedule_large_event
+FAILED tests/pytests/integration/minion/test_startup_states.py::test_startup_states_highstate
+FAILED tests/pytests/integration/minion/test_startup_states.py::test_startup_states_top
+FAILED tests/pytests/integration/pillar/test_httpclient_in_pillar.py::test_pillar_using_http_query
+FAILED tests/pytests/integration/runners/state/orchestrate/test_orchestrate.py::test_orchestrate_target_exists
+FAILED tests/pytests/integration/runners/state/orchestrate/test_orchestrate.py::test_orchestrate_target_does_not_exist
+FAILED tests/pytests/integration/states/test_file.py::test_directory_recurse
+FAILED tests/pytests/scenarios/setup/test_install.py::test_wheel[USE_STATIC_REQUIREMENTS=0]
+FAILED tests/pytests/scenarios/setup/test_install.py::test_sdist[USE_STATIC_REQUIREMENTS=1]
+FAILED tests/pytests/scenarios/setup/test_install.py::test_sdist[USE_STATIC_REQUIREMENTS=0]
+FAILED tests/pytests/scenarios/setup/test_install.py::test_setup_install[USE_STATIC_REQUIREMENTS=1]
+FAILED tests/pytests/scenarios/setup/test_install.py::test_setup_install[USE_STATIC_REQUIREMENTS=0]
+FAILED tests/pytests/scenarios/setup/test_install.py::test_salt_install_args[USE_STATIC_REQUIREMENTS=1]
+FAILED tests/pytests/scenarios/setup/test_install.py::test_salt_install_args[USE_STATIC_REQUIREMENTS=0]
+FAILED tests/pytests/scenarios/transport/test_zeromq.py::test_issue_regression_65265
+FAILED tests/pytests/unit/_logging/handlers/test_deferred_stream_handler.py::test_deferred_write_on_atexit
+FAILED tests/pytests/unit/_logging/handlers/test_deferred_stream_handler.py::test_deferred_write_on_sigint
+FAILED tests/pytests/unit/client/ssh/test_shell.py::test_ssh_shell_exec_cmd
+FAILED tests/pytests/unit/renderers/test_yamlex.py::test_basic - PermissionEr...
+FAILED tests/pytests/unit/renderers/test_yamlex.py::test_complex - Permission...
+FAILED tests/pytests/unit/test_request_channel.py::test_badload[message1] - s...
+FAILED tests/pytests/unit/test_request_channel.py::test_payload_handling_exception
+FAILED tests/pytests/unit/utils/event/test_event.py::test_event_single_no_block
+FAILED tests/pytests/unit/utils/parsers/test_log_parsers.py::test_get_log_level_cli[master]
+FAILED tests/pytests/unit/utils/test_aws.py::test_creds_with_role_arn_should_always_call_assumed_creds
+FAILED tests/pytests/unit/utils/test_thin.py::test_get_tops_python[version2]
+FAILED tests/pytests/unit/utils/test_vt.py::test_log_sanitize[echo] - ValueEr...
+FAILED tests/pytests/unit/utils/test_vt.py::test_log_sanitize[ls] - ValueErro...
+FAILED tests/unit/modules/test_saltcheck.py::SaltcheckTestCase::test_call_salt_command
+FAILED tests/unit/modules/test_saltcheck.py::SaltcheckTestCase::test_call_salt_command2
+FAILED tests/unit/modules/test_saltcheck.py::SaltcheckTestCase::test_run_test_1
+FAILED tests/unit/modules/test_saltcheck.py::SaltcheckTestCase::test_run_test_muliassert
+FAILED tests/unit/modules/test_saltcheck.py::SaltcheckTestCase::test_run_test_muliassert_failure
+FAILED tests/unit/modules/test_snapper.py::SnapperTestCase::test__is_text_file
+FAILED tests/unit/transport/test_ipc.py::IPCMessagePubSubCase::test_async_reading_streamclosederror
+FAILED tests/unit/utils/test_gitfs.py::TestGitBase::test_git_provider_mp_clear_lock
+FAILED tests/unit/utils/test_gitfs.py::TestGitBase::test_git_provider_mp_clear_lock_timeout
+FAILED tests/unit/utils/test_gitfs.py::TestGitBase::test_git_provider_mp_lock
+FAILED tests/unit/utils/test_gitfs.py::TestGitBase::test_git_provider_mp_lock_timeout
+FAILED tests/unit/utils/test_vt.py::VTTestCase::test_split_multibyte_characters_shiftjis
+FAILED tests/unit/utils/test_vt.py::VTTestCase::test_split_multibyte_characters_unicode
+FAILED tests/unit/utils/test_vt.py::VTTestCase::test_vt_size - ValueError: fi...
+= 62 failed, 15672 passed, 4091 skipped, 16 deselected, 2 xfailed, 1004 warnings, 137 errors, 202 subtests passed in 31730.23s (8:48:50) =
